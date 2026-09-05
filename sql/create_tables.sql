@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS predictions (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    input_data JSONB NOT NULL,
+
+    prediction INTEGER NOT NULL,
+    probability DOUBLE PRECISION NOT NULL
+);

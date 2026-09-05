@@ -2,7 +2,7 @@ from fastapi import FastAPI
 
 from p5.model import predict_employee
 from p5.schemas import PredictionInput, PredictionOutput
-
+from p5.database import save_prediction
 
 app = FastAPI(
     title="Futurisys ML API",
@@ -31,8 +31,16 @@ def health():
 )
 def predict(data: PredictionInput):
 
+    input_data = data.model_dump()
+
     prediction, probability = predict_employee(
-        data.model_dump()
+        input_data
+    )
+
+    save_prediction(
+        input_data=input_data,
+        prediction=prediction,
+        probability=probability
     )
 
     return {
