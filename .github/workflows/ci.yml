@@ -61,3 +61,13 @@ jobs:
           PYTHONPATH: src
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: uv run pytest tests -v
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+
+    steps:
+      - name: Deploy to Render
+        run: curl -f -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
