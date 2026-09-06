@@ -147,6 +147,10 @@ Chaque prédiction conserve :
 - la probabilité associée ;
 - la date de création.
 
+## Schéma de la base de données
+
+![Schéma UML de la base de données](docs/database_schema.png)
+
 ### Création locale de la base
 
 ```bash
