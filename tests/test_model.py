@@ -77,7 +77,7 @@ def test_prediction_known_case():
 
     prediction, probability = predict_employee(data)
 
-    assert prediction == 0
+    assert prediction == 1
     assert probability == pytest.approx(
         0.35875294,
         rel=1e-5

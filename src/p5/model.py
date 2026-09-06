@@ -3,12 +3,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import json
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 MODEL_PATH = BASE_DIR / "models" / "best_xgb.pkl"
 PREPROCESSOR_PATH = BASE_DIR / "models" / "preprocessor.pkl"
+CONFIG_PATH = BASE_DIR / "models" / "model_config.json"
 
 
 with open(MODEL_PATH, "rb") as f:
@@ -16,6 +18,11 @@ with open(MODEL_PATH, "rb") as f:
 
 with open(PREPROCESSOR_PATH, "rb") as f:
     preprocessor = pickle.load(f)
+
+with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    model_config = json.load(f)
+
+THRESHOLD = float(model_config["threshold"])
 
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -66,7 +73,7 @@ def predict_employee(data: dict):
 
     X = preprocessor.transform(df)
 
-    prediction = int(model.predict(X)[0])
     probability = float(model.predict_proba(X)[0, 1])
+    prediction = int(probability >= THRESHOLD)
 
     return prediction, probability
