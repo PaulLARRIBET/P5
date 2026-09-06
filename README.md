@@ -322,14 +322,14 @@ Le modèle retourne une probabilité de départ de l’employé.
 Le seuil de classification retenu est :
 
 ```text
-0.062
+0.150
 ```
 
 La règle de décision est donc :
 
 ```text
-probability >= 0.062  → prediction = 1
-probability < 0.062   → prediction = 0
+probability >= 0.150  → prediction = 1
+probability < 0.150   → prediction = 0
 ```
 
 Ce seuil a été sélectionné afin d’obtenir un meilleur compromis entre le rappel et l’accuracy que le seuil standard de `0.5`.
@@ -344,7 +344,7 @@ Exemple :
 
 ```json
 {
-  "threshold": 0.062
+  "threshold": 0.150
 }
 ```
 
