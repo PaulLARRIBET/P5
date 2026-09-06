@@ -10,16 +10,16 @@
 
 Ce projet est un **Proof of Concept** réalisé dans le cadre d’un projet OpenClassrooms.
 
-L’objectif est de rendre un modèle de machine learning opérationnel et accessible via une API, tout en mettant en place des pratiques d’ingénierie logicielle adaptées à un projet de déploiement ML :
+L’objectif est de rendre un modèle de machine learning opérationnel et accessible via une API, tout en appliquant des bonnes pratiques d’ingénierie logicielle et de déploiement :
 
 - exposition du modèle via **FastAPI** ;
 - validation des entrées avec **Pydantic** ;
-- tests automatisés avec **Pytest** ;
-- persistance des prédictions dans **PostgreSQL** ;
+- tests unitaires et fonctionnels avec **Pytest** ;
+- stockage du dataset et des prédictions dans **PostgreSQL** ;
 - gestion du code avec **Git / GitHub** ;
 - conteneurisation avec **Docker** ;
-- intégration continue avec **GitHub Actions** ;
-- déploiement automatique sur **Render**.
+- intégration et déploiement continus avec **GitHub Actions** ;
+- déploiement cloud sur **Render**.
 
 Le modèle utilisé est un **XGBoost Classifier** permettant de prédire le départ potentiel d’un employé.
 
@@ -32,10 +32,16 @@ P5/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
+├── data/
+│   └── employees.csv
+├── docs/
+│   └── database_schema.png
 ├── models/
 │   ├── best_xgb.pkl
-│   └── preprocessor.pkl
+│   ├── preprocessor.pkl
+│   └── model_config.json
 ├── scripts/
+│   └── import_dataset.py
 ├── sql/
 │   └── create_tables.sql
 ├── src/
@@ -47,7 +53,8 @@ P5/
 │       ├── model.py
 │       └── schemas.py
 ├── tests/
-│   └── test_api.py
+│   ├── test_api.py
+│   └── test_model.py
 ├── .env.example
 ├── .gitignore
 ├── Dockerfile
@@ -67,7 +74,7 @@ P5/
 | Validation | Pydantic |
 | Modèle ML | XGBoost |
 | Préprocessing | Scikit-learn |
-| Manipulation de données | Pandas / NumPy |
+| Données | Pandas / NumPy |
 | Base de données | PostgreSQL |
 | Accès base | SQLAlchemy |
 | Tests | Pytest / pytest-cov |
@@ -75,7 +82,7 @@ P5/
 | Versioning | Git / GitHub |
 | CI/CD | GitHub Actions |
 | Hébergement | Render |
-| Gestion des dépendances | uv |
+| Dépendances | uv |
 
 ---
 
@@ -112,7 +119,7 @@ Exemple :
 DATABASE_URL=postgresql://paullarribet@localhost:5432/p5
 ```
 
-Le fichier `.env` est ignoré par Git afin d’éviter d’exposer des informations sensibles.
+Le fichier `.env` est ignoré par Git afin de ne pas exposer d’informations sensibles.
 
 Un fichier `.env.example` est fourni comme modèle.
 
@@ -120,15 +127,21 @@ Un fichier `.env.example` est fourni comme modèle.
 
 ## Base de données PostgreSQL
 
-Le projet utilise PostgreSQL pour enregistrer les appels au modèle.
+Le projet utilise PostgreSQL pour :
 
-La table principale est créée via :
+- stocker le dataset historique complet ;
+- conserver la traçabilité des appels au modèle ;
+- enregistrer les inputs, outputs, probabilités et dates de prédiction.
 
-```text
-sql/create_tables.sql
-```
+Deux tables principales sont utilisées.
 
-Structure :
+### Table `employees`
+
+Cette table contient le dataset historique utilisé pour le projet ML.
+
+Elle contient les variables métier brutes ainsi que la cible `a_quitte_l_entreprise`.
+
+### Table `predictions`
 
 ```sql
 CREATE TABLE IF NOT EXISTS predictions (
@@ -140,21 +153,24 @@ CREATE TABLE IF NOT EXISTS predictions (
 );
 ```
 
-Chaque prédiction conserve :
+Chaque appel à `/predict` enregistre :
 
 - les données d’entrée ;
 - la classe prédite ;
 - la probabilité associée ;
 - la date de création.
 
-## Schéma de la base de données
+### Création des tables
 
-![Schéma UML de la base de données](docs/database_schema.png)
+Le schéma SQL est défini dans :
 
-### Création locale de la base
+```text
+sql/create_tables.sql
+```
+
+Pour créer les tables dans PostgreSQL :
 
 ```bash
-createdb p5
 psql p5
 ```
 
@@ -163,6 +179,36 @@ Puis dans `psql` :
 ```sql
 \i /chemin/vers/P5/sql/create_tables.sql
 ```
+
+### Import du dataset
+
+Le dataset complet est stocké dans :
+
+```text
+data/employees.csv
+```
+
+L’import dans PostgreSQL est réalisé avec :
+
+```bash
+PYTHONPATH=src uv run python scripts/import_dataset.py
+```
+
+---
+
+## Schéma de la base de données
+
+Le schéma UML de la base est disponible dans :
+
+```text
+docs/database_schema.png
+```
+
+![Schéma UML de la base de données](docs/database_schema.png)
+
+La table `employees` contient le dataset historique complet.
+
+La table `predictions` assure la traçabilité des appels à l’API. Les inputs sont stockés en JSONB afin de conserver la requête complète sans imposer de relation artificielle avec le dataset historique.
 
 ---
 
@@ -204,7 +250,7 @@ Exemple :
 
 ### `GET /health`
 
-Endpoint de contrôle simple.
+Endpoint de contrôle de l’état de l’application.
 
 Exemple :
 
@@ -216,41 +262,7 @@ Exemple :
 
 ### `POST /predict`
 
-Retourne la prédiction du modèle et sa probabilité.
-
-Exemple de payload :
-
-```json
-{
-  "genre": "F",
-  "statut_marital": "Célibataire",
-  "departement": "Consulting",
-  "poste": "Cadre Commercial",
-  "heure_supplementaires": "Oui",
-  "domaine_etude": "Infra & Cloud",
-  "frequence_deplacement": "Aucun",
-  "age": 35,
-  "revenu_mensuel": 3000,
-  "nombre_experiences_precedentes": 2,
-  "annee_experience_totale": 10,
-  "annees_dans_l_entreprise": 5,
-  "annees_dans_le_poste_actuel": 2,
-  "satisfaction_employee_environnement": 3,
-  "note_evaluation_precedente": 3,
-  "niveau_hierarchique_poste": 2,
-  "satisfaction_employee_nature_travail": 3,
-  "satisfaction_employee_equipe": 4,
-  "satisfaction_employee_equilibre_pro_perso": 3,
-  "note_evaluation_actuelle": 4,
-  "augementation_salaire_precedente": 12,
-  "nombre_participation_pee": 1,
-  "nb_formations_suivies": 2,
-  "distance_domicile_travail": 15,
-  "niveau_education": 3,
-  "annees_depuis_la_derniere_promotion": 1,
-  "annes_sous_responsable_actuel": 2
-}
-```
+Retourne une prédiction du modèle et la probabilité associée.
 
 Exemple de réponse :
 
@@ -267,15 +279,17 @@ Exemple de réponse :
 
 Le modèle utilisé est un `XGBClassifier` entraîné en amont.
 
-Deux fichiers sont chargés par l’API :
+Trois fichiers sont chargés par l’API :
 
 ```text
 models/best_xgb.pkl
 models/preprocessor.pkl
+models/model_config.json
 ```
 
 - `best_xgb.pkl` contient le modèle entraîné ;
-- `preprocessor.pkl` contient le préprocesseur Scikit-learn ajusté sur les données d’entraînement.
+- `preprocessor.pkl` contient le préprocesseur Scikit-learn ajusté sur les données d’entraînement ;
+- `model_config.json` contient les paramètres d’inférence, notamment le seuil de décision.
 
 En production, l’API applique uniquement :
 
@@ -298,6 +312,59 @@ Avant la prédiction, l’API recrée les variables dérivées utilisées pendan
 - `mobilite_carriere`
 
 Cela garantit que le modèle reçoit le même espace de features qu’au moment de son entraînement.
+
+---
+
+## Seuil de décision
+
+Le modèle retourne une probabilité de départ de l’employé.
+
+Le seuil de classification retenu est :
+
+```text
+0.062
+```
+
+La règle de décision est donc :
+
+```text
+probability >= 0.062  → prediction = 1
+probability < 0.062   → prediction = 0
+```
+
+Ce seuil a été sélectionné afin d’obtenir un meilleur compromis entre le rappel et l’accuracy que le seuil standard de `0.5`.
+
+Le seuil est stocké dans :
+
+```text
+models/model_config.json
+```
+
+Exemple :
+
+```json
+{
+  "threshold": 0.062
+}
+```
+
+Cette séparation permet de modifier le seuil d’inférence sans modifier directement le code de l’API.
+
+---
+
+## Performances du modèle
+
+Le modèle a été évalué avec plusieurs métriques de classification :
+
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- ROC-AUC
+
+Le seuil optimal a été recherché afin d’obtenir un compromis adapté entre la capacité à détecter les départs et la performance globale du modèle.
+
+Les métriques finales sont issues du notebook d’entraînement et doivent rester cohérentes avec la version de `best_xgb.pkl` déployée.
 
 ---
 
@@ -325,18 +392,29 @@ Une requête invalide retourne automatiquement une erreur HTTP `422`.
 
 Les tests sont écrits avec Pytest.
 
+### Tests API
+
 Ils couvrent notamment :
 
+- l’endpoint `/` ;
 - l’endpoint `/health` ;
 - une prédiction valide ;
 - une catégorie invalide ;
-- une valeur numérique hors limites ;
-- les scénarios de validation Pydantic.
+- une valeur numérique hors limites.
 
-Lancer les tests :
+### Tests du modèle
+
+Ils couvrent notamment :
+
+- le feature engineering ;
+- les divisions par zéro ;
+- un cas fonctionnel réel issu du dataset ;
+- la cohérence entre probabilité et prédiction.
+
+Lancer tous les tests :
 
 ```bash
-PYTHONPATH=src uv run pytest tests -v
+PYTHONPATH=src uv run pytest -v
 ```
 
 ---
@@ -352,8 +430,87 @@ PYTHONPATH=src uv run pytest --cov=src/p5 --cov-report=term-missing
 Couverture obtenue lors du développement :
 
 ```text
-97 %
+95 %
 ```
+
+---
+
+## Choix techniques
+
+### FastAPI
+
+FastAPI a été retenu car il permet :
+
+- de créer rapidement une API REST ;
+- de bénéficier d’une documentation Swagger/OpenAPI automatique ;
+- d’intégrer naturellement Pydantic ;
+- de disposer d’un framework léger et adapté au déploiement de modèles ML.
+
+### Pydantic
+
+Pydantic valide les données avant leur passage au modèle et évite les entrées incohérentes ou incompatibles.
+
+### PostgreSQL
+
+PostgreSQL est utilisé pour :
+
+- stocker le dataset historique ;
+- enregistrer chaque appel au modèle ;
+- assurer la traçabilité des inputs et outputs.
+
+### SQLAlchemy
+
+SQLAlchemy centralise les interactions Python/PostgreSQL et simplifie la gestion de la connexion.
+
+### Docker
+
+Docker garantit un environnement reproductible entre le développement local et le déploiement cloud.
+
+### GitHub Actions
+
+GitHub Actions automatise :
+
+- l’installation des dépendances ;
+- le démarrage d’un PostgreSQL de test ;
+- la création des tables ;
+- l’exécution de Pytest ;
+- la validation avant fusion ;
+- le déclenchement du déploiement.
+
+### Render
+
+Render a été retenu comme plateforme cloud équivalente à Hugging Face Spaces, adaptée au déploiement d’une API FastAPI conteneurisée avec Docker et à l’hébergement PostgreSQL.
+
+---
+
+## Environnements
+
+### Développement
+
+Exécution locale avec :
+
+- FastAPI ;
+- PostgreSQL local ;
+- fichier `.env` ;
+- Docker pour valider l’image de production.
+
+### Test
+
+GitHub Actions crée un environnement temporaire avec :
+
+- Python ;
+- les dépendances du projet ;
+- PostgreSQL de test ;
+- les tables nécessaires ;
+- Pytest.
+
+### Production
+
+L’API est déployée sur Render via Docker.
+
+La base PostgreSQL de production est également hébergée sur Render.
+
+Les secrets sont stockés dans les variables d’environnement de la plateforme.
 
 ---
 
@@ -374,7 +531,7 @@ docker run --rm \
   p5-api
 ```
 
-L’API est alors disponible sur :
+L’API est disponible sur :
 
 ```text
 http://127.0.0.1:7860
@@ -508,7 +665,10 @@ Exemples :
 ```text
 feat: integrate trained XGBoost model into API
 test: add API tests
+test: add model unit and functional tests
 feat: add PostgreSQL persistence for predictions
+feat: add employee dataset and database documentation
+feat: apply optimized prediction threshold
 ci: add GitHub Actions test workflow
 ci: add automatic Render deployment
 docs: finalize project documentation
@@ -529,11 +689,56 @@ git push origin v1.0.0
 
 ---
 
+## Maintenance et mise à jour du modèle
+
+Le modèle peut être mis à jour sans modifier l’architecture générale de l’API.
+
+### Mise à jour
+
+1. Réentraîner le modèle dans le projet ML.
+2. Sélectionner la meilleure version du modèle.
+3. Exporter le nouveau modèle dans `models/best_xgb.pkl`.
+4. Exporter le préprocesseur associé dans `models/preprocessor.pkl`.
+5. Mettre à jour le seuil dans `models/model_config.json`.
+6. Remplacer les anciens artefacts dans le dossier `models/`.
+
+### Validation
+
+Lancer les tests :
+
+```bash
+PYTHONPATH=src uv run pytest -v
+```
+
+Puis la couverture :
+
+```bash
+PYTHONPATH=src uv run pytest --cov=src/p5 --cov-report=term-missing
+```
+
+Une Pull Request doit ensuite être créée vers `develop`.
+
+Le pipeline GitHub Actions valide automatiquement les tests avant fusion.
+
+### Déploiement
+
+Après validation et merge sur `develop` :
+
+```text
+GitHub Actions
+→ tests
+→ validation
+→ Render Deploy Hook
+→ nouvelle version déployée
+```
+
+---
+
 ## Sécurité
 
-Le projet est un POC et ne prétend pas couvrir toutes les exigences d’une API de production.
+Le projet est un POC.
 
-Mesures déjà présentes :
+Les mesures déjà présentes incluent :
 
 - validation stricte des entrées avec Pydantic ;
 - secrets absents du dépôt Git ;
@@ -541,16 +746,33 @@ Mesures déjà présentes :
 - HTTPS fourni par Render ;
 - tests automatisés avant déploiement.
 
-Améliorations possibles pour une version production :
+Améliorations possibles pour une version de production :
 
 - authentification par clé API ;
 - OAuth2 ;
 - rate limiting ;
-- gestion de rôles ;
+- contrôle des rôles ;
 - monitoring ;
 - logs structurés ;
 - alerting ;
 - rotation des secrets.
+
+---
+
+## Limites du POC
+
+Pour une utilisation à plus grande échelle, plusieurs améliorations pourraient être ajoutées :
+
+- monitoring des performances du modèle ;
+- détection de data drift ;
+- détection de model drift ;
+- versionnement avancé des modèles ;
+- stratégie de rollback ;
+- authentification renforcée ;
+- gestion de la montée en charge ;
+- suivi des temps de réponse et erreurs.
+
+Les performances du modèle doivent être réévaluées régulièrement afin de déterminer si un réentraînement est nécessaire.
 
 ---
 
@@ -560,11 +782,13 @@ Le projet fournit un POC complet permettant :
 
 1. d’envoyer les caractéristiques d’un employé à une API ;
 2. de valider les données reçues ;
-3. de transformer les données avec le préprocesseur du modèle ;
-4. d’obtenir une prédiction XGBoost ;
-5. d’enregistrer la prédiction dans PostgreSQL ;
-6. de tester automatiquement l’application ;
-7. de construire et déployer l’application avec Docker et GitHub Actions.
+3. de recréer les features nécessaires ;
+4. de transformer les données avec le préprocesseur entraîné ;
+5. de calculer une probabilité avec XGBoost ;
+6. d’appliquer un seuil de décision optimisé ;
+7. d’enregistrer les inputs et outputs dans PostgreSQL ;
+8. de tester automatiquement l’application ;
+9. de déployer automatiquement l’API via Docker, GitHub Actions et Render.
 
 ---
 
